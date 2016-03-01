@@ -1,0 +1,43 @@
+<p id="notice"><%= notice %></p>
+<hr>
+<%= form_tag excell_path, multipart: true do %>
+  <%= file_field_tag :file %>
+  <%= submit_tag "Importar archivo" %>
+<% end %>
+<hr>
+<h1>Usuarios</h1>
+
+<table>
+  <thead>
+    <tr>
+      <th><strong>nombre</strong> </th>
+      <th><strong>apellidos</strong> </th>
+      <th><strong>email</strong> </th>
+      <th><strong>incorporacion</strong> </th>
+      <th><strong>baja</strong> </th>
+      <th colspan="3"></th>
+    </tr>
+  </thead>
+
+  <tbody>
+    
+    <% @users.each do |user| %>
+      <tr>
+        <td><%= user.nombre %></td>
+        <td><%= user.apellidos %></td>
+        <td><%= user.email %></td>
+        <td><%= user.incorporacion %></td>
+        <td><%= user.baja %></td>
+
+
+        <td><%= link_to 'Show', user %></td>
+        <td><%= link_to 'Edit', edit_user_path(user) %></td>
+        <td><%= link_to 'Destroy', user, method: :delete, data: { confirm: 'Are you sure?' } %></td>
+      </tr>
+    <% end %>
+  </tbody>
+</table>
+
+<br>
+
+<%= link_to 'New User', new_user_path %>
