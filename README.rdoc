@@ -1,28 +1,155 @@
 == README
+Se creará un método que lea de fichero e inserte sus valores en una tabla de la base de datos.
+SOLUCIONES
+metodo 1
+La primera aproximación fue hacer uso del formato ‘csv’, por ser este de gran difusión a la hora de importar-exportar datos entre tablas y ficheros. Es una implementación sencilla de un solo archivo desde una carpeta concreta del directorio de trabajo.
+metodo 2
+Al no especificarse un formato específico o cuantos formatos de intercambio de datos deberían usarse, opté por darle una vuelta al ejercicio y añadir varios formatos así como permitir su carga personalizada. Funciona para ‘csv’ y ‘xlsx’.
 
-This README would normally document whatever steps are necessary to get the
-application up and running.
+MODELO
 
-Things you may want to cover:
+Aunque no fuese requerimiento del ejercicio he querido usar Rails por facilitar gran parte del enunciado.
+He generado un modelo-controlador mediante scafolding para crear de manera rápida un modelo usuario. A continuación hago una migración donde he añadido los campos que requería el ejercicio.
+class CreateUsers < ActiveRecord::Migration
+  def change
+    create_table :users do |t|
+      t.string :nombre
+      t.string :apellidos
+      t.string :email
+      t.date :incorporacion
+      t.boolean :baja
+      t.timestamps null: false
+    end
+  end
+end
 
-* Ruby version
+La fecha de incorporación.aunque en el fichero se lee como un string, la guardo en un campo de tipo ‘date’.
+El campo correspondiente a ‘baja’ dedido almacenarlo como booleano.
+Ambos campos requieren de un filtrado antes de guardarse.
+Los otros campos son de tipo string y si se pueden leer-almacenar directamente.
 
-* System dependencies
+Aunque el enunciado no requería el uso de una base de datos para el ejercicio. he querido hacerlo lo más realista posible, por lo que si he usado base de datos y almacenamiento en ella.
 
-* Configuration
+VALIDACIONES
 
-* Database creation
+Se pedía que los campos fueran obligatorios, lo que se consigue con callbacks en el modelo.
+	validates :nombre, :apellidos, :email, :incorporacion, presence: true
+  	validates :email, uniqueness: true
+  	validates :baja, :inclusion => {:in => [true, false]}
+  	validates_format_of :email, :with => /\A([^@\s]+)@((?:[-a-z0-9]+\.)+[a-z]{2,})\z/i
+Añado la condición de que el email sea único, y una expresión regular para el formato del email.
 
-* Database initialization
+De no haberlo hecho con Rails, se habría tenido que implementar alguna función que al recorrer cada fila del archivo de lectura, se recorriera respectivamente cada una de sus posiciones comprobando si estaban o no vacíos. Como no se especificaba metodología a seguir he usado las herramientas que Rails ofrece mediante callbacks.
 
-* How to run the test suite
+metodo 1
 
-* Services (job queues, cache servers, search engines, etc.)
+Usamos la librería ‘cdv’ para leer un archivo de ese tipo.
+En el controlador creamos una función que lee el archivo y pasa cada una de sus filas a otra función para procesarla.
+class UsersController < ApplicationController
+def read_from_csv
+    CSV.foreach(File.join(Rails.root, 'app','csv','know.csv')) do |row|
+      row_spl = row[0].split(";")
+      new_user = User.set_fields(row_spl)
+      User.create(new_user) 
+    end
+    redirect_to users_url, notice: "Ususarios importados correctamente"
+  end
+end
 
-* Deployment instructions
+En el modelo creo el usuario a partir de los campos del fichero.
+ def self.set_fields row
+    binding.pry
+    new_user = {}
+    new_user[:nombre] = row[0]
+    new_user[:apellidos] = row[1]
+    new_user[:email] = row[2]
+    new_user[:incorporacion] = Date.parse row[3] 
+    new_user[:baja] = User.change_si_no(row[4])
+    return new_user
+  end
+Controlo los valores a almacenar en el campo boleado de la bd.
+  def self.change_si_no str
+    if str == 'si'
+      true
+    elsif str == 'no'
+      false
+    end
+  end
 
-* ...
+La acción se ejecuta en la ruta ‘/csv’, que dispara la carga del fichero y redirige al índice de usuarios.
 
 
-Please feel free to use a different markup language if you do not plan to run
-<tt>rake doc:app</tt>.
+metodo 2
+
+Tras buscar mejores soluciones al problema he visto referencias continuas a un railcast donde realizaban carga de ficheros xls. He implementado una solución a partir de la que ellos proponían, donde realizo todo el filtrado de los datos.
+En el índice de usuarios añado un botón desde el que cargar los ficheros manualmente.
+En el controlador hay una única función.
+def load_file
+    User.import(params[:file])
+    redirect_to users_url, notice: "Ususarios importados correctamente"
+  end
+
+Toda la lógica está en el modelo.
+
+  def self.import(file)
+      extension = File.extname(file.original_filename)
+      spreadsheet = open_spreadsheet(file,extension)
+      spreadsheet = check_extension(spreadsheet,extension)
+      create_user(spreadsheet,extension)
+    end
+
+    def self.check_extension spreadsheet,extension
+      if extension == '.xlsx'
+        spreadsheet = spreadsheet.to_a[1..-1]
+      end
+      spreadsheet
+    end
+
+    def self.clean_row row,extension
+      if extension == '.xlsx'
+        row = row.split(";")[0]
+      elsif extension == '.csv'
+        row = row[0].split(";")
+      end
+      row
+    end
+
+    def self.create_user spreadsheet, extension
+      spreadsheet.each do |row|
+        row = clean_row(row,extension)
+        new_user = set_fields(row)
+        create(new_user) 
+      end
+    end
+
+    def self.open_spreadsheet(file,extension)
+      case extension
+        when ".csv" then Roo::CSV.new(file.path, packed: nil, file_warning: :ignore)
+        when '.xls' then Roo::Excel.new(file.path, packed: nil, file_warning: :ignore)
+        when ".xlsx" then Roo::Excelx.new(file.path, packed: nil, file_warning: :ignore)
+        else raise "Unknown file type: #{file.original_filename}"
+      end
+    end
+
+Una función principal ‘import’ se encarga de llamar a las demás acciones.
+‘open_spreadsheet’ --> carga el fichero según el tipo
+‘check_extension’ --> comprueba la extensión y limpia la tabla dejando solo la información a procesar.
+‘create_user’--> recorre fila a fila el archivo y pasa cada una de sus filas a ‘set_fields’.
+
+Los archivos ‘cdv’ y ‘xlsx’ están en la carpeta app/csv
+
+NOTAS
+
+El ejercicio se ha resuelto de manera sencilla, ya que en el enunciado no había demasiadas especificaciones.
+De haber tenido más tiempo me habría gustado usar alguna gema específica como ‘spreadsheet’ o ‘xlsx’. He preferido usar ‘roo’ por ser una gema bien documentada.
+
+Una parte del ejercicio que no doy por completa es la del control de errores, ya que no los implemento, y en procesos de lectura de archivos, especialmente para guardar en BD, debería haberlos implementado. Este es un tema que no he visto en profundidad, lo tengo pendiente.
+
+Aunque no se pedía persistencia en BD he preferido hacerlo así, ya que al haber hecho todo el esqueleto con scafolding era muy còmodo.
+
+He intentado dejar los métodos del controlador lo más delgados posibles, y dejar toda la lógica en el modelo(thin controllers fat models), así como ceñirme lo más posible al principio de responsabilidad única. 
+
+No he testado la aplicación, ya que tampoco se pedía, pero como comenté antes a propósito del control de errores, debería ser parte importante de cualquier proyecto, por sencillo que sea.
+
+
+
